@@ -1,4 +1,5 @@
 exports.getStatus = getStatus;
+exports.getConnectedNetwork = getConnectedNetwork;
 exports.scan = scan;
 exports.startAP = startAP;
 exports.stopAP = stopAP;
@@ -42,9 +43,26 @@ function run(cmdline) {
  */
 function getStatus() {
   return run('wpa_cli -iwlan0 status').then(output => {
-    var match = output.match(/wpa_state=(.*)$/m);
+    var match = output.match(/^wpa_state=(.*)$/m);
     if (!match) {
       throw new Error('unexpected status output from wpa_cli');
+    }
+    else {
+      return match[1];
+    }
+  });
+}
+
+/*
+ * Determine the ssid of the wifi network we are connected to.
+ * This function returns a Promise that resolves to a
+ * string or null if not connected.
+ */
+function getConnectedNetwork() {
+  return run('wpa_cli -iwlan0 status').then(output => {
+    var match = output.match(/^ssid=(.*)$/m);
+    if (!match) {
+      return null;
     }
     else {
       return match[1];
