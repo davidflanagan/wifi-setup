@@ -1,0 +1,83 @@
+<html>
+  <head>
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1"/>
+    <meta charset="utf-8"/>
+    <link rel="stylesheet" href="style.css" media="screen" charset="utf-8">
+    <style>
+        body {
+          font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+          background-color: #fff;
+          color: #333;
+          font-size: 100%;
+        }
+        @media (max-width:450px) {
+          body {
+            font-size: 80%;
+          }
+        }
+        h1, h2, p, button, select, input, table {
+          display: block;
+          width: 90%;
+          max-width: 450px;
+          margin: 0 auto;
+        }
+        h1 {
+          font-size: 4em;
+          margin-top: 1.5em;
+          margin-bottom: 1em;
+        }
+        p {
+          font-size: 1.5em;
+          margin: 1em auto;
+        }
+        button {
+          margin: 2em auto;
+          font-family: inherit;
+          font-size: 2em;
+          font-weight: bold;
+          color: #eee;
+          background-color: #333;
+          border: none;
+          padding: 0.3em 1em;
+          border-radius: 2px;
+        }
+        button:active {
+          background-color: #666;
+        }
+        select, input {
+          margin: 1em auto;
+          font-size: 1.5em;
+          font-family: inherit;
+          border: 2px solid #333;
+          border-radius: 2px;
+          padding: 0.3em;
+        }
+        table {
+          margin: 1em auto;
+          font-size: 1.5em;
+        }
+        th {
+          text-align: left;
+          min-width: 50%
+        }
+        td {
+          text-align: right;
+          vertical-align: bottom;
+        }
+        td, th {
+          border-bottom: 2px solid #333;
+          padding: 0.3em 0;
+        }
+    </style>
+    <title>Connecting...</title>
+  </head>
+  <body>
+    <h1>Connecting...</h1>
+    <p>
+      This device is now connecting to the <strong>{{ssid}}</strong>
+      wifi network. You can now reconnect your phone or computer
+      to your home wifi.
+    </p>
+  </body>
+</html>

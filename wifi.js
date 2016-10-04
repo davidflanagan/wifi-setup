@@ -1,37 +1,13 @@
+var run = require('./run.js');
+var platform = require('./platform.js');
+
 exports.getStatus = getStatus;
 exports.getConnectedNetwork = getConnectedNetwork;
 exports.scan = scan;
 exports.startAP = startAP;
 exports.stopAP = stopAP;
 exports.defineNetwork = defineNetwork;
-
-var child_process = require('child_process');
-
-// A Promise-based version of child_process.execFile.
-// It takes a single command line and splits on whitespace to create
-// the array of arguments, so it is not suitable for command where
-// one of the arguments has spaces. (If we need that, we can use exec
-// instead of execFile.)  It rejects the promise if there is an error
-// or if there is any output to stderr. Otherwise it resolves the promise
-// passing the text that was sent to stdout.
-function run(cmdline) {
-  return new Promise(function(resolve, reject) {
-    console.log("Running command:", cmdline);
-    var args = cmdline.split(/\s/);
-    var program = args.shift();
-    child_process.execFile(program, args, function(error, stdout, stderr) {
-      if (error) {
-        reject(error);
-      }
-      else if (stderr && stderr.length > 0) {
-        reject(new Error(program + ' output to stderr: ' + stderr));
-      }
-      else {
-        resolve(stdout)
-      }
-    });
-  });
-}
+exports.getKnownNetworks = getKnownNetworks;
 
 /*
  * Determine whether we have a wifi connection with the `wpa_cli
@@ -42,32 +18,16 @@ function run(cmdline) {
  * a connection is being established
  */
 function getStatus() {
-  return run('wpa_cli -iwlan0 status').then(output => {
-    var match = output.match(/^wpa_state=(.*)$/m);
-    if (!match) {
-      throw new Error('unexpected status output from wpa_cli');
-    }
-    else {
-      return match[1];
-    }
-  });
+  return run(platform.getStatus);
 }
 
 /*
  * Determine the ssid of the wifi network we are connected to.
- * This function returns a Promise that resolves to a
- * string or null if not connected.
+ * This function returns a Promise that resolves to a string. 
+ * The string will be empty if not connected.
  */
 function getConnectedNetwork() {
-  return run('wpa_cli -iwlan0 status').then(output => {
-    var match = output.match(/^ssid=(.*)$/m);
-    if (!match) {
-      return null;
-    }
-    else {
-      return match[1];
-    }
-  });
+  return run(platform.getConnectedNetwork);
 }
 
 /*
@@ -76,45 +36,51 @@ function getConnectedNetwork() {
  * is the ssid of a wifi network. They are sorted by signal strength from
  * strongest to weakest. On a Raspberry Pi, a scan seems to require root
  * privileges.
+ *
+ * On a Raspberry Pi 3, this function works when the device is in AP mode.
+ * The Intel Edison, however, cannot scan while in AP mode: iwlist fails
+ * with an error. iwlist sometimes also fails with an error when the
+ * hardware is busy, so this function will try multiple times if you
+ * pass a number. If all attempts fail, the promise is resolved to
+ * an empty array.
  */
-function scan() {
-  return run('iwlist wlan0 scan').then(output => {
-    var lines = output.split('\n');
-    var networks = [];
-    var ssid, signal;
-    lines.forEach(l => {
-      var m = l.match(/Quality=(\d+)/);
-      if (m) {
-        signal = parseInt(m[1]);
-        return;
-      }
+function scan(numAttempts) {
+  numAttempts = numAttempts || 1;
+  return new Promise(function(resolve, reject) {
+    var attempts = 0;
 
-      m = l.match(/ESSID:"([^"]*)"/);
-      if (m) {
-        networks.push({
-          ssid: m[1],
-          strength: signal
+    function tryScan() {
+      attempts++;
+
+      _scan()
+        .then(out => { resolve(out.length ? out.split('\n') : []);})
+        .catch(err => {
+          console.error('Scan attempt', attempts, 'failed:', err.message||err);
+
+          if (attempts >= numAttempts) {
+            console.error('Giving up. No scan results available.');
+            resolve([]);
+            return;
+          }
+          else {
+            console.error('Will try again in 3 seconds.');
+            setTimeout(tryScan, 3000);
+          }
         });
-        ssid = undefined;
-        signal = undefined;
-      }
-    });
+    }
 
-    // Sort networks based on strength
-    networks.sort((a,b) => b.strength - a.strength);
-
-    // Return just the ssids
-    return networks.map(n => n.ssid);
+    tryScan();
   });
+
+  function _scan() {
+    return run(platform.scan)
+  }
 }
 
 /*
  * Enable an access point that users can connect to to configure the device.
- * This command works by running these commands:
  *
- *   ifconfig wlan0 10.0.0.1
- *   systemctl start hostapd
- *   systemctl start udhcpd
+ * This command runs different commands on Raspbery Pi Rasbian and Edison Yocto.
  *
  * It requires that hostapd and udhcpd are installed on the system but not
  * enabled, so that they do not automatically run when the device boots up.
@@ -135,34 +101,21 @@ function scan() {
  * will be functional, however. The setup process might take a few
  * seconds to complete before the user will be able to see and connect
  * to the network.
- *
- * Note that this function requires root privileges to work
  */
 function startAP() {
-  return run('ifconfig wlan0 10.0.0.1')
-    .then(output => run('systemctl start hostapd'))
-    .then(output => run('systemctl start udhcpd'));
+  return run(platform.startAP);
 }
 
 /*
- * Like startAP(), but take the network down by running these commands:
- *
- *   systemctl stop udhcpd
- *   systemctl stop hostapd
+ * Like startAP(), but take the access point down, using platform-dependent
+ * commands.
  *
  * Returns a promise that resolves when the commands have been run. At
  * this point, the AP should be in the process of stopping but may not
  * yet be completely down.
- *
- * Note that this function does not change the local IP address from 10.0.0.1
- * back to whatever it was before startAP() was called. As far as I can tell
- * this does not actually cause any problems.
- *
- * Note that this function requires root privileges to work
  */
 function stopAP() {
-  return run('systemctl stop udhcpd')
-    .then(output => run('systemctl stop hostapd'));
+  return run(platform.stopAP);
 }
 
 /*
@@ -173,34 +126,18 @@ function stopAP() {
  *
  * If the system is not connected to a wifi network, calling this
  * command with a valid ssid and password should cause it to connect.
- *
- * This command does not require root privileges, if the user is in
- * the group defined in wpa_supplicant.conf group
  */
 function defineNetwork(ssid, password) {
-  var ssidCmd, passwordCmd, enableCmd;
+  return run(password ? platform.defineNetwork : platform.defineOpenNetwork, {
+    SSID: ssid,
+    PSK: password
+  });
+}
 
-  // First create a new network
-  return run('wpa_cli -iwlan0 add_network')
-  // Then use the network number output by that command to define
-  // the command strings that come next
-    .then(out => {
-      var id = out.trim();
-      ssidCmd = `wpa_cli -iwlan0 set_network ${id} ssid "${ssid}"`;
-
-      if (password) {
-        passwordCmd = `wpa_cli -iwlan0 set_network ${id} psk "${password}"`;
-      }
-      else {
-        passwordCmd = `wpa_cli -iwlan0 set_network ${id} key_mgmt NONE`;
-      }
-
-      enableCmd = `wpa_cli -iwlan0 enable_network ${id}`;
-    })
-  // Then set the ssid and password for the network and enable it
-    .then(out => run(ssidCmd))
-    .then(out => run(passwordCmd))
-    .then(out => run(enableCmd))
-  // Then save the network to the config file so it persists across reboots
-    .then(out => run('wpa_cli -iwlan0 save_config'))
+/*
+ * Return a Promise that resolves to an array of known wifi network names
+ */
+function getKnownNetworks() {
+  return run(platform.getKnownNetworks)
+    .then(out => out.length ? out.split('\n') : []);
 }
